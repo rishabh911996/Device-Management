@@ -13,5 +13,6 @@ variable "argo_namespace" {
 variable "grafana_admin_pwd" {
   description = "The password for the Grafana admin user."
   type        = string
+  sensitive   = true
   default     = "admin"
 }
