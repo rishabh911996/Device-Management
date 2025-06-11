@@ -10,7 +10,8 @@ spec:
   {{- end }}
   selector:
     matchLabels:
-      {{- include "weather-service.selectorLabels" . | nindent 6 }}
+      app.kubernetes.io/name: {{ include "weather-service.name" . }}
+      app.kubernetes.io/instance: {{ .Release.Name }}
   template:
     metadata:
       {{- with .Values.podAnnotations }}
@@ -18,7 +19,8 @@ spec:
         {{- toYaml . | nindent 8 }}
       {{- end }}
       labels:
-        {{- include "weather-service.selectorLabels" . | nindent 8 }}
+        app.kubernetes.io/name: {{ include "weather-service.name" . }}
+        app.kubernetes.io/instance: {{ .Release.Name }}
         {{- with .Values.podLabels }}
         {{- toYaml . | nindent 8 }}
         {{- end }}
