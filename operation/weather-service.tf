@@ -4,7 +4,7 @@ resource "kubernetes_manifest" "weather_service" {
     kind       = "Application"
     metadata = {
       name      = "weather-service"
-      namespace = "weather-service"  # ArgoCD namespace where Applications should be created
+      namespace = "argocd"  # ArgoCD namespace where Applications should be created
       finalizers = [
         "resources-finalizer.argocd.argoproj.io"
       ]
