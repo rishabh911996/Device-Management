@@ -11,7 +11,7 @@ spec:
   selector:
     matchLabels:
       app.kubernetes.io/name: {{ include "weather-service.name" . }}
-      app.kubernetes.io/instance: {{ .Release.Name }}
+      app.kubernetes.io/instance: {{ .Release.Name }}  # This will use the release name
   template:
     metadata:
       {{- with .Values.podAnnotations }}
@@ -20,7 +20,7 @@ spec:
       {{- end }}
       labels:
         app.kubernetes.io/name: {{ include "weather-service.name" . }}
-        app.kubernetes.io/instance: {{ .Release.Name }}
+        app.kubernetes.io/instance: {{ .Release.Name }}  # Make sure this is the Release.Name, not a hardcoded value
         {{- with .Values.podLabels }}
         {{- toYaml . | nindent 8 }}
         {{- end }}
