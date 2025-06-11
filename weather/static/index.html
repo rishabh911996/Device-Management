@@ -1,0 +1,146 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Weather Dashboard</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            max-width: 1200px;
+            margin: 0 auto;
+            padding: 20px;
+            background-color: #f5f5f5;
+        }
+        .weather-card {
+            background: white;
+            border-radius: 8px;
+            padding: 20px;
+            margin: 20px 0;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+        }
+        .controls {
+            display: flex;
+            gap: 10px;
+            margin-bottom: 20px;
+        }
+        select, button {
+            padding: 10px;
+            border: 1px solid #ddd;
+            border-radius: 4px;
+        }
+        button {
+            background-color: #007bff;
+            color: white;
+            cursor: pointer;
+        }
+        button:hover {
+            background-color: #0056b3;
+        }
+        .forecast {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+            gap: 15px;
+        }
+        .forecast-day {
+            background: #f8f9fa;
+            padding: 15px;
+            border-radius: 6px;
+            text-align: center;
+        }
+    </style>
+</head>
+<body>
+    <h1>Weather Dashboard</h1>
+    
+    <div class="controls">
+        <select id="citySelect">
+            <option value="">Select a city...</option>
+        </select>
+        <button id="refreshBtn">Refresh</button>
+    </div>
+    
+    <div id="currentWeather" class="weather-card">
+        <h2>Current Weather</h2>
+        <p>Select a city to see current weather</p>
+    </div>
+    
+    <div id="forecast" class="weather-card">
+        <h2>5-Day Forecast</h2>
+        <div class="forecast" id="forecastContainer">
+            <p>Select a city to see forecast</p>
+        </div>
+    </div>
+
+    <script>
+        const API_BASE = '/api'; // Use relative paths for same-origin requests
+        
+        // Load cities when page loads
+        document.addEventListener('DOMContentLoaded', async () => {
+            try {
+                const response = await fetch(`${API_BASE}/cities`);
+                const data = await response.json();
+                
+                const citySelect = document.getElementById('citySelect');
+                data.cities.forEach(city => {
+                    const option = document.createElement('option');
+                    option.value = city.id;
+                    option.textContent = city.name;
+                    citySelect.appendChild(option);
+                });
+                
+                // Add event listeners
+                citySelect.addEventListener('change', loadWeatherData);
+                document.getElementById('refreshBtn').addEventListener('click', loadWeatherData);
+            } catch (error) {
+                console.error('Error loading cities:', error);
+            }
+        });
+        
+        async function loadWeatherData() {
+            const cityId = document.getElementById('citySelect').value;
+            if (!cityId) return;
+            
+            try {
+                // Get current weather
+                const weatherResponse = await fetch(`${API_BASE}/weather/${cityId}`);
+                const weatherData = await weatherResponse.json();
+                
+                // Display current weather
+                const currentWeather = document.getElementById('currentWeather');
+                currentWeather.innerHTML = `
+                    <h2>Current Weather for ${weatherData.city}</h2>
+                    <p><strong>Condition:</strong> ${weatherData.condition}</p>
+                    <p><strong>Temperature:</strong> ${weatherData.temperature}°C</p>
+                    <p><strong>Humidity:</strong> ${weatherData.humidity}%</p>
+                    <p><strong>Wind Speed:</strong> ${weatherData.wind_speed} km/h</p>
+                    <p><small>Last updated: ${new Date(weatherData.timestamp).toLocaleString()}</small></p>
+                `;
+                
+                // Get forecast
+                const forecastResponse = await fetch(`${API_BASE}/forecast/${cityId}`);
+                const forecastData = await forecastResponse.json();
+                
+                // Display forecast
+                const forecastContainer = document.getElementById('forecastContainer');
+                forecastContainer.innerHTML = '';
+                
+                forecastData.forecast.forEach(day => {
+                    const dayElement = document.createElement('div');
+                    dayElement.className = 'forecast-day';
+                    dayElement.innerHTML = `
+                        <h3>${day.date}</h3>
+                        <p>${day.condition}</p>
+                        <p>${day.temperature}°C</p>
+                    `;
+                    forecastContainer.appendChild(dayElement);
+                });
+                
+            } catch (error) {
+                console.error('Error loading weather data:', error);
+                alert('Error loading weather data. Please try again later.');
+            }
+        }
+    </script>
+</body>
+</html>

@@ -1,0 +1,101 @@
+# Default values for weather-service.
+# This is a YAML-formatted file.
+# Declare variables to be passed into your templates.
+
+# This will set the replicaset count more information can be found here: https://kubernetes.io/docs/concepts/workloads/controllers/replicaset/
+replicaCount: 2
+
+image:
+  repository: weather-service
+  pullPolicy: IfNotPresent
+  # Make tag easily configurable for CI/CD
+  tag: "latest"
+
+imagePullSecrets: []
+nameOverride: ""
+fullnameOverride: ""
+
+serviceAccount:
+  create: true
+  automount: true
+  annotations: {}
+  name: ""
+
+# Pod annotations for Prometheus scraping
+podAnnotations:
+  prometheus.io/scrape: "true"
+  prometheus.io/port: "8080"
+  prometheus.io/path: "/health"
+
+# Pod labels for better organization
+podLabels:
+  app.kubernetes.io/name: weather-service
+  app.kubernetes.io/instance: weather-service
+  app.kubernetes.io/component: backend
+  app.kubernetes.io/part-of: iot-platform
+
+podSecurityContext: {}
+securityContext: {}
+
+service:
+  type: ClusterIP
+  port: 80
+  targetPort: 8080
+
+# Enable ingress for external access
+ingress:
+  enabled: true
+  className: "nginx"
+  annotations:
+    nginx.ingress.kubernetes.io/rewrite-target: /
+  hosts:
+    - host: weather.local
+      paths:
+        - path: /
+          pathType: Prefix
+  tls: []
+
+# Set resource limits for production
+resources:
+  limits:
+    cpu: 500m
+    memory: 512Mi
+  requests:
+    cpu: 250m
+    memory: 256Mi
+
+# Updated probes to use correct paths
+livenessProbe:
+  httpGet:
+    path: /health
+    port: http
+  initialDelaySeconds: 30
+  periodSeconds: 10
+
+readinessProbe:
+  httpGet:
+    path: /health
+    port: http
+  initialDelaySeconds: 5
+  periodSeconds: 5
+
+autoscaling:
+  enabled: false
+  minReplicas: 2
+  maxReplicas: 10
+  targetCPUUtilizationPercentage: 80
+
+volumes: []
+volumeMounts: []
+nodeSelector: {}
+tolerations: []
+affinity: {}
+
+# Environment variables for the application
+env:
+  - name: SERVICE_NAME
+    value: "weather-service"
+  - name: LOG_LEVEL
+    value: "INFO"
+  - name: METRICS_PORT
+    value: "8080"

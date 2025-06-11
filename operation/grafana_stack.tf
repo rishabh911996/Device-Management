@@ -1,4 +1,4 @@
-# Grafana deployment - Fixed for Minikube
+# Grafana deployment - Fixed for Docker Desktop with proper lifecycle management
 resource "helm_release" "grafana" {
   name       = "grafana"
   repository = "https://grafana.github.io/helm-charts"
@@ -6,17 +6,32 @@ resource "helm_release" "grafana" {
   namespace  = kubernetes_namespace.monitoring.metadata[0].name
   version    = "9.2.2"
 
+  # Add lifecycle management to handle conflicts
+  lifecycle {
+    create_before_destroy = true
+  }
+
+  # Helm-specific options to handle conflicts
+  cleanup_on_fail = true
+  force_update    = true
+  recreate_pods   = true
+  timeout         = 300
+
   values = [
     yamlencode({
       adminPassword = var.grafana_admin_pwd
       service = {
         type     = "NodePort"
         nodePort = 30080
+        # Add annotation to help with updates
+        annotations = {
+          "helm.sh/resource-policy" = "keep"
+        }
       }
       persistence = {
-        enabled = false  # Temporarily disable persistence to avoid issues
+        enabled = false # Good for Docker Desktop
       }
-      
+
       resources = {
         requests = {
           memory = "128Mi"
@@ -27,7 +42,7 @@ resource "helm_release" "grafana" {
           cpu    = "200m"
         }
       }
-      
+
       datasources = {
         "datasources.yaml" = {
           apiVersion = 1
@@ -40,26 +55,47 @@ resource "helm_release" "grafana" {
               isDefault = true
             },
             {
-              name   = "Loki"
-              type   = "loki"
-              url    = "http://loki.${var.monitoring_namespace}.svc.cluster.local:3100"
-              access = "proxy"
-              # Add headers to disable org requirement
+              name      = "Loki"
+              type      = "loki"
+              # Use the simpler service name instead of FQDN
+              url       = "http://loki:3100"
+              access    = "proxy"
+              isDefault = false
               jsonData = {
                 maxLines = 1000
+                timeout  = 30
+                timeInterval = "30s"
+                # Update health checks
+                healthchecks = {
+                  disableHealthcheck = true
+                }
+                # Update logs volume configuration
+                logsVolume = {
+                  enabled = true
+                  defaultQuery = "{namespace=\"monitoring\"}"
+                }
+                # Add features for drilldown
+                features = {
+                  analytics = true
+                  sensitivityLabels = false
+                }
+                queryTimeout = "30s"
+                alertmanager = {
+                  implementation = "prometheus"
+                }
               }
-              # No authentication headers needed for single-tenant mode
+              # Remove secureJsonData as it's not needed
             },
             {
               name   = "Tempo"
               type   = "tempo"
-              url    = "http://tempo.${var.monitoring_namespace}.svc.cluster.local:3100"
+              url    = "http://tempo.${var.monitoring_namespace}.svc.cluster.local:3100" # Fixed port
               access = "proxy"
             }
           ]
         }
       }
-      
+
       dashboards = {
         default = {
           prometheus-stats = {
@@ -95,119 +131,81 @@ resource "helm_release" "grafana" {
   ]
 }
 
-# Loki deployment - Fixed for Grafana integration
+# Loki deployment - Simplified for Docker Desktop
 resource "helm_release" "loki" {
   name       = "loki"
   repository = "https://grafana.github.io/helm-charts"
-  chart      = "loki"
+  # Use the main loki-stack chart as in the working solution
+  chart      = "loki-stack"
   namespace  = kubernetes_namespace.monitoring.metadata[0].name
-  version    = "6.30.1"
+  version    = "2.9.11"
+
+  # Simplify the configuration
+  set {
+    name  = "loki.enabled"
+    value = "true"
+  }
 
   values = [
     yamlencode({
-      deploymentMode = "SingleBinary"
       loki = {
-        auth_enabled = false  # Disable authentication for single-tenant mode
-        commonConfig = {
-          replication_factor = 1
-        }
-        storage = {
-          type = "filesystem"
-        }
-        schemaConfig = {
-          configs = [
-            {
-              from         = "2020-10-24"
-              store        = "tsdb"
+        auth_enabled = false
+        config = {
+          ingester = {
+            chunk_idle_period = "5m"
+            chunk_retain_period = "30s"
+            lifecycler = {
+              ring = {
+                kvstore = {
+                  store = "inmemory"
+                }
+                replication_factor = 1
+              }
+            }
+          }
+          schema_config = {
+            configs = [{
+              from = "2020-10-24"
+              store = "boltdb-shipper"
               object_store = "filesystem"
-              schema       = "v13"
+              schema = "v11"
               index = {
                 prefix = "index_"
                 period = "24h"
               }
+            }]
+          }
+          storage_config = {
+            boltdb_shipper = {
+              active_index_directory = "/data/loki/index"
+              cache_location = "/data/loki/cache"
+              cache_ttl = "24h"
+              shared_store = "filesystem"
             }
-          ]
-        }
-        # Add server configuration to disable multi-tenancy
-        server = {
-          http_listen_port = 3100
-          grpc_listen_port = 9095
-        }
-        # Limits configuration
-        limits_config = {
-          reject_old_samples = true
-          reject_old_samples_max_age = "168h"
-          allow_structured_metadata = false
-        }
-      }
-      singleBinary = {
-        replicas = 1
-        persistence = {
-          enabled = true
-          size    = "2Gi"
-        }
-        resources = {
-          requests = {
-            memory = "128Mi"
-            cpu    = "100m"
+            filesystem = {
+              directory = "/data/loki/chunks"
+            }
           }
-          limits = {
-            memory = "512Mi"
-            cpu    = "500m"
+          limits_config = {
+            max_cache_freshness_per_query = "10m"
+            split_queries_by_interval = "15m"
+            max_query_parallelism = 32
+            max_entries_limit_per_query = 5000
+          }
+          query_scheduler = {
+            max_outstanding_requests_per_tenant = 2048
+          }
+          querier = {
+            engine = {
+              timeout = "3m"
+              max_look_back_period = "5m"
+            }
           }
         }
       }
-      # Disable chunksCache which was causing memory issues
-      chunksCache = {
-        enabled = false
-      }
-      resultsCache = {
-        enabled = false
-      }
-      # Disable other deployment modes
-      backend = {
-        replicas = 0
-      }
-      read = {
-        replicas = 0
-      }
-      write = {
-        replicas = 0
-      }
-      ingester = {
-        replicas = 0
-      }
-      querier = {
-        replicas = 0
-      }
-      queryFrontend = {
-        replicas = 0
-      }
-      queryScheduler = {
-        replicas = 0
-      }
-      distributor = {
-        replicas = 0
-      }
-      compactor = {
-        replicas = 0
-      }
-      indexGateway = {
-        replicas = 0
-      }
-      bloomCompactor = {
-        replicas = 0
-      }
-      bloomGateway = {
-        replicas = 0
-      }
-      monitoring = {
-        serviceMonitor = {
-          enabled = false
-        }
-      }
-      test = {
-        enabled = false
+      serviceMonitor = {
+        enabled = true
+        interval = "30s"
       }
     })
   ]
@@ -215,53 +213,7 @@ resource "helm_release" "loki" {
   depends_on = [kubernetes_namespace.monitoring]
 }
 
-# Enhanced Promtail configuration for comprehensive log collection
-resource "helm_release" "promtail" {
-  name       = "promtail"
-  repository = "https://grafana.github.io/helm-charts"
-  chart      = "promtail"
-  namespace  = kubernetes_namespace.monitoring.metadata[0].name
-  version    = "6.17.0"
-
-  values = [
-    yamlencode({
-      config = {
-        lokiAddress = "http://loki.${var.monitoring_namespace}.svc.cluster.local:3100/loki/api/v1/push"
-      }
-      
-      resources = {
-        requests = {
-          memory = "128Mi"
-          cpu    = "100m"
-        }
-        limits = {
-          memory = "256Mi"
-          cpu    = "200m"
-        }
-      }
-      
-      serviceMonitor = {
-        enabled = false
-      }
-      
-      serviceAccount = {
-        create = true
-      }
-      
-      rbac = {
-        create = true
-        pspEnabled = false
-      }
-    })
-  ]
-
-  depends_on = [
-    kubernetes_namespace.monitoring,
-    helm_release.loki
-  ]
-}
-
-# Tempo deployment - Minimal resources
+# Tempo deployment - Optimized for Docker Desktop
 resource "helm_release" "tempo" {
   name       = "tempo"
   repository = "https://grafana.github.io/helm-charts"
@@ -269,10 +221,20 @@ resource "helm_release" "tempo" {
   namespace  = kubernetes_namespace.monitoring.metadata[0].name
   version    = "1.21.1"
 
+  # Add lifecycle management
+  lifecycle {
+    create_before_destroy = true
+  }
+
+  # Add these options to handle StatefulSet updates
+  cleanup_on_fail = true
+  force_update    = true
+  timeout         = 600
+
   values = [
     yamlencode({
       tempo = {
-        retention = "12h"  # Reduced from 24h
+        retention = "6h"
         storage = {
           trace = {
             backend = "local"
@@ -304,28 +266,48 @@ resource "helm_release" "tempo" {
           }
         }
       }
+
       persistence = {
-        enabled = true
-        size    = "2Gi"  # Reduced from 10Gi
+        enabled = false # Disable persistence for easier updates in Docker Desktop
       }
+
       resources = {
         requests = {
+          memory = "64Mi"
+          cpu    = "50m"
+        }
+        limits = {
           memory = "128Mi"
           cpu    = "100m"
         }
-        limits = {
-          memory = "256Mi"
-          cpu    = "200m"
-        }
       }
-      serviceMonitor = {
-        enabled = false  # Disable until Prometheus Operator is installed
-      }
+
+      serviceMonitor = { enabled = false }
       service = {
         type = "ClusterIP"
+        ports = [
+          {
+            name       = "http"
+            port       = 3100
+            targetPort = 3100
+          }
+        ]
       }
     })
   ]
 
   depends_on = [kubernetes_namespace.monitoring]
+}
+
+# Output monitoring stack information
+output "monitoring_stack_info" {
+  value = {
+    grafana_url         = "http://localhost:30080"
+    grafana_credentials = "admin / ${var.grafana_admin_pwd}"
+    prometheus_url      = "http://localhost:30090"
+    alertmanager_url    = "http://localhost:30093"
+    note                = "All services accessible on localhost with Docker Desktop"
+  }
+  sensitive   = true
+  description = "Monitoring stack access information"
 }
