@@ -82,10 +82,9 @@ output "argocd_info" {
   value = {
     url              = "http://localhost:30081"
     username         = "admin"
-    password_command = "kubectl -n argocd get secret argocd-initial-admin-secret -o jsonpath=\"{.data.password}\" | base64 -d"
+    password_command = "kubectl -n argocd get secret argocd-initial-admin-secret -o jsonpath='{.data.password}' | base64 -d"
     note             = "Make sure Docker Desktop Kubernetes is enabled"
   }
-  description = "ArgoCD access information for Docker Desktop"
 }
 
 # Verify Docker Desktop Kubernetes context
